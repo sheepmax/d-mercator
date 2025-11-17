@@ -61,6 +61,66 @@
 #include "integrate_expected_degree.hpp"
 #include "readjust_positions.hpp"
 
+#include <cmath>
+#include <limits>
+
+namespace sd {
+
+// Compute chi = R * dtheta / (mu * k1 * k2)^(1/D).
+inline double chi(double radius_R,
+                  double dtheta,
+                  double mu,
+                  double k1,
+                  double k2,
+                  int dim)
+{
+    // Guard against nonpositive inputs; dim>=1 is expected.
+    const double denom = std::pow(mu * k1 * k2, 1.0 / std::max(1, dim));
+    return (radius_R * dtheta) / denom;
+}
+
+// Gravity-law connection probability p_ij = 1 / (1 + chi^beta).
+inline double connection_probability(double radius_R,
+                                     double dtheta,
+                                     double mu,
+                                     double k1,
+                                     double k2,
+                                     double beta,
+                                     int dim)
+{
+    const double chi_ = chi(radius_R, dtheta, mu, k1, k2, dim);
+    // // Use 1/(1+z) = exp(-log1p(z)) for stability when z is large.
+    return std::exp(-std::log1p(std::pow(chi_, beta)));
+}
+
+// Log-likelihood contribution for a pair, given neighbor flag.
+// neighbors == true  -> log p_ij  = -log1p(chi^beta)
+// neighbors == false -> log(1-p)  = -log1p(chi^{-beta})
+inline double pairwise_loglikelihood(double radius_R,
+                                     double dtheta,
+                                     double mu,
+                                     double k1,
+                                     double k2,
+                                     double beta,
+                                     int dim,
+                                     bool neighbors)
+{
+  const double x = chi(radius_R, dtheta, mu, k1, k2, dim);
+    if (neighbors) {
+        return -std::log1p(std::pow(x, beta));
+    } else {
+        // log(1 - 1/(1+ x^beta)) = log(x^beta/(1+x^beta)) = 
+        // -log((1+x^beta)/x^beta) = -log((x^{-beta}+1)/) =
+        //  -log1p(x^{-beta})
+        return -std::log1p(std::pow(x, -beta));
+    }
+    const double prob = connection_probability(radius_R, dtheta, mu, k1, k2, beta, dim);
+}
+
+} // namespace sd
+
+
+
 class embeddingSD_t
 {
   private:
@@ -745,6 +805,7 @@ void embeddingSD_t::compute_clustering()
   average_clustering /= nb_vertices_degree_gt_one;
 }
 
+
 void embeddingSD_t::compute_inferred_ensemble_expected_degrees(int dim, double radius)
 {
   // Computes the new expected degrees given the inferred values of theta.
@@ -753,8 +814,7 @@ void embeddingSD_t::compute_inferred_ensemble_expected_degrees(int dim, double r
   for(int v1=0; v1<nb_vertices; ++v1) {
     for(int v2(v1 + 1); v2<nb_vertices; ++v2) {
       const auto dtheta = compute_angle_d_vectors(d_positions[v1], d_positions[v2]);
-      const auto chi = radius * dtheta / std::pow(mu * kappa[v1] * kappa[v2], 1.0 / dim);
-      const auto prob = 1 / (1 + std::pow(chi, beta));
+      const auto prob = sd::connection_probability(radius, dtheta, mu, kappa[v1], kappa[v2], beta, dim);
       inferred_ensemble_expected_degree[v1] += prob;
       inferred_ensemble_expected_degree[v2] += prob;  
     }
@@ -765,20 +825,15 @@ void embeddingSD_t::compute_inferred_ensemble_expected_degrees(int dim, double r
 // =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=
 void embeddingSD_t::compute_inferred_ensemble_expected_degrees()
 {
-  // Variables.
-  double kappa1, theta1, dtheta, prob;
-  double prefactor = nb_vertices / (2 * PI * mu);
   // Computes the new expected degrees given the inferred values of theta.
   inferred_ensemble_expected_degree.clear();
   inferred_ensemble_expected_degree.resize(nb_vertices, 0);
   for(int v1(0); v1<nb_vertices; ++v1)
   {
-    kappa1 = kappa[v1];
-    theta1 = theta[v1];
     for(int v2(v1 + 1); v2<nb_vertices; ++v2)
     {
-      dtheta = PI - std::fabs(PI - std::fabs(theta1 - theta[v2]));
-      prob = 1 / (1 + std::pow((prefactor * dtheta) / (kappa1 * kappa[v2]), beta));
+      const auto dtheta = PI - std::fabs(PI - std::fabs(theta[v1] - theta[v2]));
+      const auto prob = sd::connection_probability(nb_vertices / (2 * PI), dtheta, mu, kappa[v1], kappa[v2], beta, 1);
       inferred_ensemble_expected_degree[v1] += prob;
       inferred_ensemble_expected_degree[v2] += prob;
     }
@@ -976,13 +1031,7 @@ double embeddingSD_t::compute_pairwise_loglikelihood(int dim, int v1, std::vecto
   if(v1 == v2)
     return 0;
   const auto dtheta = compute_angle_d_vectors(pos1, pos2);
-  const auto chi = radius * dtheta / std::pow(mu * kappa[v1] * kappa[v2], 1.0 / dim);
-  const auto prob = 1 / (1 + std::pow(chi, beta));
-  if (neighbors) { // TODO: Is it correct ??
-    return std::log(prob);
-  } else {
-    return std::log(1 - prob);
-  }  
+  return sd::pairwise_loglikelihood(radius, dtheta, mu, kappa[v1], kappa[v2], beta, dim, neighbors);
 }
 
 
@@ -1000,16 +1049,7 @@ double embeddingSD_t::compute_pairwise_loglikelihood(int v1, double t1, int v2, 
   // Computes the loglikelihood between vertives v1 and v2 according to whether they are neighbors or not.
   double fraction = (nb_vertices * da) / (2 * PI * mu * kappa[v1] * kappa[v2]);
 
-  if(neighbors)
-  {
-    return -beta * std::log(fraction); // TODO: Correct if fraction >> 1, test it
-    // My solution:
-    // return -std::log(1 + std::pow(fraction, beta));
-  }
-  else // not neighbors
-  {
-    return -std::log(1 + std::pow(fraction, -beta));
-  }
+  return sd::pairwise_loglikelihood(nb_vertices / 2 * PI, da, mu, kappa[v1], kappa[v2], beta, 1, neighbors);
 }
 
 
@@ -1190,7 +1230,7 @@ void embeddingSD_t::extract_onion_decomposition(std::vector<int> &coreness, std:
   }
 
   // Determines the coreness and the layer based on the modified algorithm of Batagelj and
-  //   Zaversnik by Hébert-Dufresne, Grochow and Allard.
+  //   Zaversnik by HÃ©bert-Dufresne, Grochow and Allard.
   int v1, v2, d1, d2;
   int current_layer = 0;
   // int current_core = 0;
@@ -1839,8 +1879,7 @@ void embeddingSD_t::generate_simulated_adjacency_list(int dim, bool random_posit
     const auto positions1 = d_positions[v1];
     for (int v2 = v1 + 1; v2 < nb_vertices; ++v2) {
       const auto dtheta = compute_angle_d_vectors(positions1, d_positions[v2]);
-      const auto chi = radius * dtheta / std::pow(mu * kappa[v1] * kappa[v2], 1.0 / dim);
-      const auto prob = 1 / (1 + std::pow(chi, beta));
+      const auto prob = sd::connection_probability(radius, dtheta, mu, kappa[v1], kappa[v2], beta, dim);
       if (uniform_01(engine) < prob) {
         simulated_adjacency_list[v1].insert(v2);
         simulated_adjacency_list[v2].insert(v1);
@@ -1857,16 +1896,12 @@ void embeddingSD_t::generate_simulated_adjacency_list()
   simulated_adjacency_list.clear();
   simulated_adjacency_list.resize(nb_vertices);
   // Generates the adjacency list.
-  double kappa1, theta1, dtheta, prob;
-  double prefactor = nb_vertices / (2 * PI * mu);
   for(int v1(0); v1<nb_vertices; ++v1)
   {
-    kappa1 = kappa[v1];
-    theta1 = theta[v1];
     for(int v2(v1 + 1); v2<nb_vertices; ++v2)
     {
-      dtheta = PI - std::fabs(PI - std::fabs(theta1 - theta[v2]));
-      prob = 1 / (1 + std::pow((prefactor * dtheta) / (kappa1 * kappa[v2]), beta));
+      const auto dtheta = PI - std::fabs(PI - std::fabs(theta[v1] - theta[v2]));
+      const auto prob = sd::connection_probability(/*radius*/ nb_vertices / (2 * PI), dtheta, mu, kappa[v1], kappa[v2], beta, 1);
       if(uniform_01(engine) < prob)
       {
         simulated_adjacency_list[v1].insert(v2);
@@ -1989,7 +2024,16 @@ void embeddingSD_t::infer_kappas_given_beta_for_all_vertices(int dim)
   while (keep_going && (cnt < KAPPA_MAX_NB_ITER_CONV))
   {
     // Updates the expected degree of individual vertices.
+
+    // REMOVE THIS
+    if(!QUIET_MODE) { std::clog << "Here1" << std::endl; }
+    if(!QUIET_MODE) { std::clog.flush(); }
+
     compute_inferred_ensemble_expected_degrees(dim, radius);
+
+    if(!QUIET_MODE) { std::clog << "Here2" << std::endl; }
+    if(!QUIET_MODE) { std::clog.flush(); }
+
     // Verifies convergence.
     keep_going = false;
     for(int v(0); v<nb_vertices; ++v)
@@ -2181,9 +2225,18 @@ void embeddingSD_t::infer_kappas_given_beta_for_all_vertices()
   bool keep_going = true;
   while( keep_going && (cnt < KAPPA_MAX_NB_ITER_CONV) )
   {
+    // REMOVE THIS 
+    if(!QUIET_MODE) { std::clog << "Before compute inferred" << std::endl; }
+    if(!QUIET_MODE) { std::clog.flush(); }
+
     // Updates the expected degree of individual vertices.
     compute_inferred_ensemble_expected_degrees();
     // Verifies convergence.
+
+    // REMOVE THIS 
+    if(!QUIET_MODE) { std::clog << "After compute inferred" << std::endl; }
+    if(!QUIET_MODE) { std::clog.flush(); }
+
     keep_going = false;
     for(int v(0); v<nb_vertices; ++v)
     {
@@ -2193,6 +2246,10 @@ void embeddingSD_t::infer_kappas_given_beta_for_all_vertices()
         continue;
       }
     }
+    // REMOVE THIS 
+    if(!QUIET_MODE) { std::clog << "After loop" << std::endl; }
+    if(!QUIET_MODE) { std::clog.flush(); }
+
     // Modifies the value of the kappas prior to the next iteration, if required.
     if(keep_going)
     {
@@ -3300,18 +3357,13 @@ void embeddingSD_t::save_inferred_connection_probability(int dim)
   std::vector<double> p(bins.size(), 0);
   std::vector<double> x(bins.size(), 0);
   // Computes the connection probability for every pair of vertices.
-  double k1;
-  double t1;
-  double da;
-  double dist;
   for(int v1(0), i; v1<nb_vertices; ++v1)
   {
-    k1 = kappa[v1];
     const auto pos1 = d_positions[v1];
     for(int v2(v1 + 1); v2<nb_vertices; ++v2)
     {
-      da = compute_angle_d_vectors(pos1, d_positions[v2]);
-      dist = (radius * da) / std::pow(mu * k1 * kappa[v2], 1.0 / dim);
+      const auto da = compute_angle_d_vectors(pos1, d_positions[v2]);
+      const auto dist = sd::chi(radius, da, mu, kappa[v1], kappa[v2], dim); 
       i = bins.lower_bound(dist)->second;
       n[i] += 1;
       x[i] += dist;
@@ -3369,18 +3421,12 @@ void embeddingSD_t::save_inferred_connection_probability()
   std::vector<double> p(bins.size(), 0);
   std::vector<double> x(bins.size(), 0);
   // Computes the connection probability for every pair of vertices.
-  double k1;
-  double t1;
-  double da;
-  double dist;
   for(int v1(0), i; v1<nb_vertices; ++v1)
   {
-    k1 = kappa[v1];
-    t1 = theta[v1];
     for(int v2(v1 + 1); v2<nb_vertices; ++v2)
     {
-      da = PI - std::fabs( PI - std::fabs(t1 - theta[v2]) );
-      dist = (nb_vertices * da) / (2 * PI * mu * k1 * kappa[v2]);
+      const auto da = PI - std::fabs( PI - std::fabs(theta[v1] - theta[v2]) );
+      const auto dist = sd::chi(nb_vertices / (2 * PI), da, mu, kappa[v1], kappa[v2], 1); 
       i = bins.lower_bound(dist)->second;
       n[i] += 1;
       x[i] += dist;
