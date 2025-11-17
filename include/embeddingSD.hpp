@@ -3506,7 +3506,7 @@ void embeddingSD_t::save_inferred_coordinates(int dim)
   coordinates_file << "#   - radius_S^D:          " << R                            << std::endl;
   coordinates_file << "#   - radius_H^D+1         " << hyp_radius                   << std::endl;
   coordinates_file << "#   - kappa_min:           " << kappa_min                    << std::endl;
-  coordinates_file << "#   - link preservation p. " << link_preservation_probability << std::endl; 
+  coordinates_file << "#   - link preservation:   " << link_preservation_probability << std::endl; 
   coordinates_file << "# =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=" << std::endl;
   coordinates_file << "#";
   coordinates_file << std::setw(width_names - 1)  << "Vertex"          << " ";
@@ -3673,18 +3673,19 @@ void embeddingSD_t::save_inferred_coordinates()
   }
   // Writes the header.
   coordinates_file << "# =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=" << std::endl;
-  coordinates_file << "# Embedding started at:  " << format_time(time_started)    << std::endl;
-  coordinates_file << "# Ended at:              " << format_time(time_ended)      << std::endl;
-  coordinates_file << "# Elapsed CPU time:      " << time5 - time0 << " seconds"  << std::endl;
-  coordinates_file << "# Edgelist file:         " << EDGELIST_FILENAME            << std::endl;
-  coordinates_file << "#"                                                         << std::endl;
-  coordinates_file << "# Parameters"                                              << std::endl;
-  coordinates_file << "#   - nb. vertices:      " << nb_vertices                  << std::endl;
-  coordinates_file << "#   - beta:              " << beta                         << std::endl;
-  coordinates_file << "#   - mu:                " << mu                           << std::endl;
-  coordinates_file << "#   - radius_S1:         " << nb_vertices / (2 * PI)       << std::endl;
-  coordinates_file << "#   - radius_H2:         " << hyp_radius                   << std::endl;
-  coordinates_file << "#   - kappa_min:         " << kappa_min                    << std::endl;
+  coordinates_file << "# Embedding started at:    " << format_time(time_started)    << std::endl;
+  coordinates_file << "# Ended at:                " << format_time(time_ended)      << std::endl;
+  coordinates_file << "# Elapsed CPU time:        " << time5 - time0 << " seconds"  << std::endl;
+  coordinates_file << "# Edgelist file:           " << EDGELIST_FILENAME            << std::endl;
+  coordinates_file << "#"                                                           << std::endl;
+  coordinates_file << "# Parameters"                                                << std::endl;
+  coordinates_file << "#   - nb. vertices:        " << nb_vertices                  << std::endl;
+  coordinates_file << "#   - beta:                " << beta                         << std::endl;
+  coordinates_file << "#   - mu:                  " << mu                           << std::endl;
+  coordinates_file << "#   - radius_S1:           " << nb_vertices / (2 * PI)       << std::endl;
+  coordinates_file << "#   - radius_H2:           " << hyp_radius                   << std::endl;
+  coordinates_file << "#   - kappa_min:           " << kappa_min                    << std::endl;
+  coordinates_file << "#   - link preservation:   " << link_preservation_probability << std::endl;                    
   coordinates_file << "# =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=" << std::endl;
   coordinates_file << "#";
   coordinates_file << std::setw(width_names - 1) << "Vertex"          << " ";
