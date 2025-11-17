@@ -86,11 +86,12 @@ inline double connection_probability(double radius_R,
                                      double k1,
                                      double k2,
                                      double beta,
-                                     int dim)
+                                     int dim,
+                                     double link_preservation_probability)
 {
     const double chi_ = chi(radius_R, dtheta, mu, k1, k2, dim);
     // // Use 1/(1+z) = exp(-log1p(z)) for stability when z is large.
-    return std::exp(-std::log1p(std::pow(chi_, beta)));
+    return link_preservation_probability * std::exp(-std::log1p(std::pow(chi_, beta)));
 }
 
 // Log-likelihood contribution for a pair, given neighbor flag.
@@ -103,18 +104,16 @@ inline double pairwise_loglikelihood(double radius_R,
                                      double k2,
                                      double beta,
                                      int dim,
-                                     bool neighbors)
+                                     bool neighbors,
+                                     double link_preservation_probability)
 {
   const double x = chi(radius_R, dtheta, mu, k1, k2, dim);
-    if (neighbors) {
-        return -std::log1p(std::pow(x, beta));
-    } else {
-        // log(1 - 1/(1+ x^beta)) = log(x^beta/(1+x^beta)) = 
-        // -log((1+x^beta)/x^beta) = -log((x^{-beta}+1)/) =
-        //  -log1p(x^{-beta})
-        return -std::log1p(std::pow(x, -beta));
-    }
-    const double prob = connection_probability(radius_R, dtheta, mu, k1, k2, beta, dim);
+  const double pow_x = std::pow(x, beta);
+  if (neighbors) {
+      return std::log(link_preservation_probability) - std::log1p(pow_x);
+  } else {
+      return std::log1p(pow_x - link_preservation_probability) - std::log1p(pow_x);
+  }
 }
 
 } // namespace sd
@@ -265,6 +264,8 @@ class embeddingSD_t
   public:
     // Parameter beta (clustering).
     double beta;
+    // Probability of keeping a link during a link removal process
+    double link_preservation_probability;
   private:
     // Average degree of the inferred ensemble.
     double random_ensemble_average_degree;
@@ -641,7 +642,7 @@ void embeddingSD_t::build_cumul_dist_for_mc_integration(int dim) {
     for(; it2!=end2; ++it2) {
       const auto kappa1 = random_ensemble_kappa_per_degree_class[*it1];
       const auto kappa2 = random_ensemble_kappa_per_degree_class[*it2];
-      tmp_val = compute_integral_expected_degree_dimensions(dim, R, mu, beta, kappa1, kappa2);
+      tmp_val = compute_integral_expected_degree_dimensions(dim, R, mu, beta, kappa1, kappa2, link_preservation_probability);
       nkkp[*it2] = degree2vertices[*it2].size() * tmp_val / random_ensemble_expected_degree_per_degree_class[*it1];
     }
 
@@ -814,7 +815,7 @@ void embeddingSD_t::compute_inferred_ensemble_expected_degrees(int dim, double r
   for(int v1=0; v1<nb_vertices; ++v1) {
     for(int v2(v1 + 1); v2<nb_vertices; ++v2) {
       const auto dtheta = compute_angle_d_vectors(d_positions[v1], d_positions[v2]);
-      const auto prob = sd::connection_probability(radius, dtheta, mu, kappa[v1], kappa[v2], beta, dim);
+      const auto prob = sd::connection_probability(radius, dtheta, mu, kappa[v1], kappa[v2], beta, dim, link_preservation_probability);
       inferred_ensemble_expected_degree[v1] += prob;
       inferred_ensemble_expected_degree[v2] += prob;  
     }
@@ -833,7 +834,7 @@ void embeddingSD_t::compute_inferred_ensemble_expected_degrees()
     for(int v2(v1 + 1); v2<nb_vertices; ++v2)
     {
       const auto dtheta = PI - std::fabs(PI - std::fabs(theta[v1] - theta[v2]));
-      const auto prob = sd::connection_probability(nb_vertices / (2 * PI), dtheta, mu, kappa[v1], kappa[v2], beta, 1);
+      const auto prob = sd::connection_probability(nb_vertices / (2 * PI), dtheta, mu, kappa[v1], kappa[v2], beta, 1, link_preservation_probability);
       inferred_ensemble_expected_degree[v1] += prob;
       inferred_ensemble_expected_degree[v2] += prob;
     }
@@ -897,7 +898,7 @@ std::pair<int, double> embeddingSD_t::degree_of_random_vertex_and_prob_conn(int 
   auto d = cumul_prob_kgkp[d1].lower_bound(uniform_01(engine))->second;
   const auto kappa1 = random_ensemble_kappa_per_degree_class[d1];
   const auto kappa2 = random_ensemble_kappa_per_degree_class[d];
-  auto p = compute_integral_expected_degree_dimensions(dim, R, mu, beta, kappa1, kappa2);
+  auto p = compute_integral_expected_degree_dimensions(dim, R, mu, beta, kappa1, kappa2, link_preservation_probability);
   return std::make_pair(d, p);
 }
 
@@ -917,7 +918,7 @@ double embeddingSD_t::draw_random_angular_distance(int d1, int d2, double R, dou
   while((zmax - zmin) > NUMERICAL_CONVERGENCE_THRESHOLD_2)
   {
     z = (zmax + zmin) / 2;
-    pz = compute_integral_expected_degree_dimensions(dim, R, mu, beta, kappa1, kappa2, z) / p12;
+    pz = compute_integral_expected_degree_dimensions(dim, R, mu, beta, kappa1, kappa2, z, link_preservation_probability) / p12;
     if(pz > pc)
       zmax = z;
     else
@@ -1031,7 +1032,7 @@ double embeddingSD_t::compute_pairwise_loglikelihood(int dim, int v1, std::vecto
   if(v1 == v2)
     return 0;
   const auto dtheta = compute_angle_d_vectors(pos1, pos2);
-  return sd::pairwise_loglikelihood(radius, dtheta, mu, kappa[v1], kappa[v2], beta, dim, neighbors);
+  return sd::pairwise_loglikelihood(radius, dtheta, mu, kappa[v1], kappa[v2], beta, dim, neighbors, link_preservation_probability);
 }
 
 
@@ -1049,7 +1050,7 @@ double embeddingSD_t::compute_pairwise_loglikelihood(int v1, double t1, int v2, 
   // Computes the loglikelihood between vertives v1 and v2 according to whether they are neighbors or not.
   double fraction = (nb_vertices * da) / (2 * PI * mu * kappa[v1] * kappa[v2]);
 
-  return sd::pairwise_loglikelihood(nb_vertices / 2 * PI, da, mu, kappa[v1], kappa[v2], beta, 1, neighbors);
+  return sd::pairwise_loglikelihood(nb_vertices / 2 * PI, da, mu, kappa[v1], kappa[v2], beta, 1, neighbors, link_preservation_probability);
 }
 
 
@@ -1440,8 +1441,8 @@ void embeddingSD_t::find_initial_ordering(std::vector<std::vector<double>> &posi
             d2 = degree[v2];
             k2 = random_ensemble_kappa_per_degree_class[d2];
             // Computes the expected arc length distance between connected pairs of vertices.
-            const auto top_expected_distance = compute_integral_expected_theta(dim, radius, mu, beta, k1, k2);
-            const auto bottom_expected_distance = compute_integral_expected_degree_dimensions(dim, radius, mu, beta, k1, k2);
+            const auto top_expected_distance = compute_integral_expected_theta(dim, radius, mu, beta, k1, k2, link_preservation_probability);
+            const auto bottom_expected_distance = compute_integral_expected_degree_dimensions(dim, radius, mu, beta, k1, k2, link_preservation_probability);
             expected_distance = top_expected_distance / bottom_expected_distance;
             if(expected_distance < 0 || expected_distance > PI)
             {
@@ -1590,7 +1591,7 @@ void embeddingSD_t::find_initial_ordering(std::vector<std::vector<double>> &posi
       // Draw value from the distribution of angular distance \Delta\theta 
       // between two connected nodes with hidden degrees kappa1 and kappa2
       const auto kappa1 = kappa[list_neigh_degree_one[v]];
-      const auto p12 = compute_integral_expected_degree_dimensions(dim, radius, mu, beta, kappa1, kappa2);
+      const auto p12 = compute_integral_expected_degree_dimensions(dim, radius, mu, beta, kappa1, kappa2, link_preservation_probability);
       const auto random_angle = draw_random_angular_distance(degree[v1], 1, radius, p12, dim);
       // Generate random vector with a given angular seperation
 
@@ -1879,7 +1880,7 @@ void embeddingSD_t::generate_simulated_adjacency_list(int dim, bool random_posit
     const auto positions1 = d_positions[v1];
     for (int v2 = v1 + 1; v2 < nb_vertices; ++v2) {
       const auto dtheta = compute_angle_d_vectors(positions1, d_positions[v2]);
-      const auto prob = sd::connection_probability(radius, dtheta, mu, kappa[v1], kappa[v2], beta, dim);
+      const auto prob = sd::connection_probability(radius, dtheta, mu, kappa[v1], kappa[v2], beta, dim, link_preservation_probability);
       if (uniform_01(engine) < prob) {
         simulated_adjacency_list[v1].insert(v2);
         simulated_adjacency_list[v2].insert(v1);
@@ -1901,7 +1902,7 @@ void embeddingSD_t::generate_simulated_adjacency_list()
     for(int v2(v1 + 1); v2<nb_vertices; ++v2)
     {
       const auto dtheta = PI - std::fabs(PI - std::fabs(theta[v1] - theta[v2]));
-      const auto prob = sd::connection_probability(/*radius*/ nb_vertices / (2 * PI), dtheta, mu, kappa[v1], kappa[v2], beta, 1);
+      const auto prob = sd::connection_probability(/*radius*/ nb_vertices / (2 * PI), dtheta, mu, kappa[v1], kappa[v2], beta, 1, link_preservation_probability);
       if(uniform_01(engine) < prob)
       {
         simulated_adjacency_list[v1].insert(v2);
@@ -2313,7 +2314,7 @@ void embeddingSD_t::infer_kappas_given_beta_for_degree_class(int dim)
       it2 = it1;
       auto kappa_i = random_ensemble_kappa_per_degree_class[*it1];
       auto kappa_j = random_ensemble_kappa_per_degree_class[*it2];
-      auto integral = compute_integral_expected_degree_dimensions(dim, radius, mu, beta, kappa_i, kappa_j);
+      auto integral = compute_integral_expected_degree_dimensions(dim, radius, mu, beta, kappa_i, kappa_j, link_preservation_probability);
       prob_conn = integral;
      
       random_ensemble_expected_degree_per_degree_class[*it1] += prob_conn * (degree2vertices[*it2].size() - 1);
@@ -2321,7 +2322,7 @@ void embeddingSD_t::infer_kappas_given_beta_for_degree_class(int dim)
       {
         kappa_i = random_ensemble_kappa_per_degree_class[*it1];
         kappa_j = random_ensemble_kappa_per_degree_class[*it2];
-        integral = compute_integral_expected_degree_dimensions(dim, radius, mu, beta, kappa_i, kappa_j);
+        integral = compute_integral_expected_degree_dimensions(dim, radius, mu, beta, kappa_i, kappa_j, link_preservation_probability);
         prob_conn = integral;
         random_ensemble_expected_degree_per_degree_class[*it1] += prob_conn * degree2vertices[*it2].size();
         random_ensemble_expected_degree_per_degree_class[*it2] += prob_conn * degree2vertices[*it1].size();
@@ -2396,11 +2397,11 @@ void embeddingSD_t::infer_kappas_given_beta_for_degree_class()
     for(; it1!=end; ++it1)
     {
       it2 = it1;
-      prob_conn = hyp2f1a(beta, -std::pow(nb_vertices / (2.0 * mu * random_ensemble_kappa_per_degree_class[*it1] * random_ensemble_kappa_per_degree_class[*it2]), beta));
+      prob_conn = link_preservation_probability * hyp2f1a(beta, -std::pow(nb_vertices / (2.0 * mu * random_ensemble_kappa_per_degree_class[*it1] * random_ensemble_kappa_per_degree_class[*it2]), beta));
       random_ensemble_expected_degree_per_degree_class[*it1] += prob_conn * (degree2vertices[*it2].size() - 1);
       for(++it2; it2!=end; ++it2)
       {
-        prob_conn = hyp2f1a(beta, -std::pow(nb_vertices / (2.0 * mu * random_ensemble_kappa_per_degree_class[*it1] * random_ensemble_kappa_per_degree_class[*it2]), beta));
+        prob_conn = link_preservation_probability * hyp2f1a(beta, -std::pow(nb_vertices / (2.0 * mu * random_ensemble_kappa_per_degree_class[*it1] * random_ensemble_kappa_per_degree_class[*it2]), beta));
         random_ensemble_expected_degree_per_degree_class[*it1] += prob_conn * degree2vertices[*it2].size();
         random_ensemble_expected_degree_per_degree_class[*it2] += prob_conn * degree2vertices[*it1].size();
       }
@@ -3392,7 +3393,7 @@ void embeddingSD_t::save_inferred_connection_probability(int dim)
     {
       pconn_file << std::setw(width_values) << x[i] / n[i]           << " ";
       pconn_file << std::setw(width_values) << p[i] / n[i]           << " ";
-      pconn_file << std::setw(width_values) << 1 / (1 + std::pow(x[i] / n[i], beta) ) << " ";
+      pconn_file << std::setw(width_values) << link_preservation_probability / (1 + std::pow(x[i] / n[i], beta) ) << " ";
       pconn_file << std::endl;
     }
   }
@@ -3455,7 +3456,7 @@ void embeddingSD_t::save_inferred_connection_probability()
     {
       pconn_file << std::setw(width_values) << x[i] / n[i]           << " ";
       pconn_file << std::setw(width_values) << p[i] / n[i]           << " ";
-      pconn_file << std::setw(width_values) << 1 / (1 + std::pow(x[i] / n[i], beta) ) << " ";
+      pconn_file << std::setw(width_values) << link_preservation_probability / (1 + std::pow(x[i] / n[i], beta) ) << " ";
       pconn_file << std::endl;
     }
   }
@@ -3490,7 +3491,7 @@ void embeddingSD_t::save_inferred_coordinates(int dim)
   {
     std::cerr << "Could not open file: " << coordinates_filename << "." << std::endl;
     std::terminate();
-  }
+  } 
   // Writes the header.
   coordinates_file << "# =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=" << std::endl;
   coordinates_file << "# Embedding started at:  " << format_time(time_started)    << std::endl;
@@ -3499,12 +3500,13 @@ void embeddingSD_t::save_inferred_coordinates(int dim)
   coordinates_file << "# Edgelist file:         " << EDGELIST_FILENAME            << std::endl;
   coordinates_file << "#"                                                         << std::endl;
   coordinates_file << "# Parameters"                                              << std::endl;
-  coordinates_file << "#   - nb. vertices:      " << nb_vertices                  << std::endl;
-  coordinates_file << "#   - beta:              " << beta                         << std::endl;
-  coordinates_file << "#   - mu:                " << mu                           << std::endl;
-  coordinates_file << "#   - radius_S^D:        " << R                            << std::endl;
-  coordinates_file << "#   - radius_H^D+1       " << hyp_radius                   << std::endl;
-  coordinates_file << "#   - kappa_min:         " << kappa_min                    << std::endl;
+  coordinates_file << "#   - nb. vertices:        " << nb_vertices                  << std::endl;
+  coordinates_file << "#   - beta:                " << beta                         << std::endl;
+  coordinates_file << "#   - mu:                  " << mu                           << std::endl;
+  coordinates_file << "#   - radius_S^D:          " << R                            << std::endl;
+  coordinates_file << "#   - radius_H^D+1         " << hyp_radius                   << std::endl;
+  coordinates_file << "#   - kappa_min:           " << kappa_min                    << std::endl;
+  coordinates_file << "#   - link preservation p. " << link_preservation_probability << std::endl; 
   coordinates_file << "# =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=" << std::endl;
   coordinates_file << "#";
   coordinates_file << std::setw(width_names - 1)  << "Vertex"          << " ";

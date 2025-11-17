@@ -97,6 +97,9 @@ The following options are available:
     -p             Beta+kappas post-processing step.
     -e             Only infer kappas for a given input network. Then exit and save these 
                    hidden degrees to file.
+    -l             Link preservation probability used in a link removal process. Use
+                   this to improve the embedding of graph with missing links.
+                   Default: 1.0
   )";
   std::cout << help << '\n';
 }
@@ -117,10 +120,11 @@ void parse_options(int argc , char *argv[], embeddingSD_t &the_graph)
 
   // <edgelist_filename>
   the_graph.EDGELIST_FILENAME = argv[argc - 1];
+  the_graph.link_preservation_probability = 1.0;
 
   // Parsing options.
   int opt;
-  while ((opt = getopt(argc,argv,"ab:cfkpo:r:qs:vd:e")) != -1)
+  while ((opt = getopt(argc,argv,"ab:cfkpo:r:qs:vd:el:")) != -1)
   {
     switch(opt)
     {
@@ -181,6 +185,9 @@ void parse_options(int argc , char *argv[], embeddingSD_t &the_graph)
         break;
       case 'e':
         the_graph.ONLY_KAPPAS = true;
+        break;
+      case 'l':
+        the_graph.link_preservation_probability = std::stod(optarg);
         break;
       default:
         print_usage();

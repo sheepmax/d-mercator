@@ -28,20 +28,23 @@ extern "C" {
 }
 
 double compute_integral_expected_degree_dimensions(int dim, double radius, double mu, double beta,
-                                                   double kappa1, double kappa2, double upper_bound=M_PI) {
+                                                   double kappa1, double kappa2, 
+                                                   double link_preservation_probability,
+                                                   double upper_bound=M_PI) {
     double c = radius / std::pow(mu * kappa1 * kappa2, 1.0 / dim);
     double result{0};
     pkk_(&result, &dim, &beta, &c, &upper_bound);
-    return result;
+    return link_preservation_probability * result;
 }
 
 
 double compute_integral_expected_theta(int dim, double radius, double mu, double beta, 
-                                       double kappa1, double kappa2) {
+                                       double kappa1, double kappa2,
+                                       double link_preservation_probability) {
     double c = radius / std::pow(mu * kappa1 * kappa2, 1.0 / dim);
     double result{0};
     pkk_expected_(&result, &dim, &beta, &c);
-    return result;
+    return link_preservation_probability * result;
 }
 
 
