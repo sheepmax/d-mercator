@@ -705,7 +705,7 @@ void embeddingSD_t::build_cumul_dist_for_mc_integration()
     end2 = degree_class.end();
     for(; it2!=end2; ++it2)
     {
-      tmp_val = hyp2f1a(beta, -std::pow((PI * R) / (mu * random_ensemble_kappa_per_degree_class[*it1] * random_ensemble_kappa_per_degree_class[*it2]), beta));
+      tmp_val = link_preservation_probability * hyp2f1a(beta, -std::pow(sd::chi(R, PI, mu, random_ensemble_kappa_per_degree_class[*it1], random_ensemble_kappa_per_degree_class[*it2], 1), beta));
       nkkp[*it2] = degree2vertices[*it2].size() * tmp_val / random_ensemble_expected_degree_per_degree_class[*it1];
     }
 
@@ -905,7 +905,7 @@ std::pair<int, double> embeddingSD_t::degree_of_random_vertex_and_prob_conn(int 
 std::pair<int, double> embeddingSD_t::degree_of_random_vertex_and_prob_conn(int d1, double R)
 {
   auto d = cumul_prob_kgkp[d1].lower_bound(uniform_01(engine))->second;
-  auto p = hyp2f1a(beta, -std::pow((PI * R) / (mu * random_ensemble_kappa_per_degree_class[d1] * random_ensemble_kappa_per_degree_class[d]), beta));
+  auto p = link_preservation_probability * hyp2f1a(beta, -std::pow((PI * R) / (mu * random_ensemble_kappa_per_degree_class[d1] * random_ensemble_kappa_per_degree_class[d]), beta));
   return std::make_pair(d, p);
 }
 
@@ -934,7 +934,7 @@ double embeddingSD_t::draw_random_angular_distance(int d1, int d2, double R, dou
   while((zmax - zmin) > NUMERICAL_CONVERGENCE_THRESHOLD_2)
   {
     z = (zmax + zmin) / 2;
-    pz = (z / PI) * hyp2f1a(beta, -std::pow((z * R) / (mu * random_ensemble_kappa_per_degree_class[d1] * random_ensemble_kappa_per_degree_class[d2]), beta)) / p12;
+    pz = link_preservation_probability * (z / PI) * hyp2f1a(beta, -std::pow(sd::chi(R, z, mu, random_ensemble_kappa_per_degree_class[d1], random_ensemble_kappa_per_degree_class[d2], 1), beta)) / p12;
     if(pz > pc)
       zmax = z;
     else
@@ -971,12 +971,11 @@ double embeddingSD_t::compute_random_ensemble_clustering_for_degree_class(int d1
     const auto v2 = generate_random_d_vector_with_first_coordinate(dim, z13, R);
     const auto d_angle = compute_angle_d_vectors(v1, v2);
     if (d_angle < NUMERICAL_ZERO) {
-      p23 += 1;
+      // At zero angular separation p_old == 1, so observed connection probability is r * 1.
+      p23 += link_preservation_probability;
     } else {
-      const auto kappa1 = random_ensemble_kappa_per_degree_class[d2];
-      const auto kappa2 = random_ensemble_kappa_per_degree_class[d3];
-      const auto inside = (R * d_angle / std::pow(mu * kappa1 * kappa2, 1.0 / dim));
-      p23 += 1.0 / (1 + std::pow(inside, beta));
+      // Use observed connection probability p_new = r * p_old to be consistent with simulation.
+      p23 += sd::connection_probability(R, da, mu, random_ensemble_kappa_per_degree_class[d2], random_ensemble_kappa_per_degree_class[d3], beta, dim, link_preservation_probability);
     }
   }
   // Returns the value of the local clustering coefficient for this degree class (A.3.2.iv).
@@ -1015,9 +1014,11 @@ double embeddingSD_t::compute_random_ensemble_clustering_for_degree_class(int d1
 
     da = std::min(da, (2.0 * PI) - da);
     if(da < NUMERICAL_ZERO)
-      p23 += 1;
+    // At zero separation observed probability is r
+      p23 += link_preservation_probability;
     else
-      p23 += 1.0 / (1.0 + std::pow((da * R) / (mu * random_ensemble_kappa_per_degree_class[d2] * random_ensemble_kappa_per_degree_class[d3]), beta));
+    // Multiply by link_preservation_probability so analytic estimate matches simulated p_new
+      p23 += sd::connection_probability(R, da, mu, random_ensemble_kappa_per_degree_class[d2], random_ensemble_kappa_per_degree_class[d3], beta, 1, link_preservation_probability);
   }
   // Returns the value of the local clustering coefficient for this degree class (A.3.2.iv).
   return p23 / nb_points;
@@ -1048,9 +1049,7 @@ double embeddingSD_t::compute_pairwise_loglikelihood(int v1, double t1, int v2, 
   // Computes the angular separation.
   double da = PI - std::fabs(PI - std::fabs(t1 - t2));
   // Computes the loglikelihood between vertives v1 and v2 according to whether they are neighbors or not.
-  double fraction = (nb_vertices * da) / (2 * PI * mu * kappa[v1] * kappa[v2]);
-
-  return sd::pairwise_loglikelihood(nb_vertices / 2 * PI, da, mu, kappa[v1], kappa[v2], beta, 1, neighbors, link_preservation_probability);
+  return sd::pairwise_loglikelihood(nb_vertices / (2 * PI), da, mu, kappa[v1], kappa[v2], beta, 1, neighbors, link_preservation_probability);
 }
 
 
@@ -1231,7 +1230,7 @@ void embeddingSD_t::extract_onion_decomposition(std::vector<int> &coreness, std:
   }
 
   // Determines the coreness and the layer based on the modified algorithm of Batagelj and
-  //   Zaversnik by HÃ©bert-Dufresne, Grochow and Allard.
+  //   Zaversnik by HÃbert-Dufresne, Grochow and Allard.
   int v1, v2, d1, d2;
   int current_layer = 0;
   // int current_core = 0;
@@ -1962,28 +1961,40 @@ void embeddingSD_t::infer_initial_positions()
     int2 = 0;
     tmp = 0;
     factor = prefactor / ( random_ensemble_kappa_per_degree_class[degree[v0]] * random_ensemble_kappa_per_degree_class[degree[v1]] );
-    // Adjusts the sign of beta according to whether the vertices are connected or not.
-    b = beta;
-    if(adjacency_list[v0].find(v1) == adjacency_list[v0].end())
-    {
-      b = -beta; // not connected
+
+    // Upper bound (da = PI) with half-weight
+    // Numerical integration of the expected angular distance between two consecutive vertices.
+   {
+      const double da = PI;
+      const double p_old_upper = 1.0 / (1.0 + std::pow(factor * da, beta));
+      double tmp_upper;
+      if(adjacency_list[v0].find(v1) == adjacency_list[v0].end()) {
+        // not connected: weight by 1 - p_new
+        tmp_upper = std::exp(-da / avg_gap) * (1.0 - link_preservation_probability * p_old_upper);
+      } else {
+        // connected: weight by p_new (factor cancels in the ratio, but keep for consistency)
+        tmp_upper = std::exp(-da / avg_gap) * (link_preservation_probability * p_old_upper);
+      }
+      int1 += da * tmp_upper / 2.0;
+      int2 += tmp_upper / 2.0;
     }
-    // Lower bound of the integral (no contribution if not connected).
-    if(b > 0)
-    {
-      int2 += 0.5;
-    }
-    // Upper bound of the integral.
-    tmp = std::exp(-PI / avg_gap) / ( 1 + std::pow(factor * PI, b) );
-    int1 += PI * tmp / 2;
-    int2 += tmp / 2;
-    // In-between points.
+
+    // In-between points using midpoint rule over [dx, PI)
     for(double da = dx; da < PI; da += dx)
     {
-      tmp = std::exp(-da / avg_gap) / ( 1 + std::pow(factor * da, b) );
-      int1 += da * tmp;
-      int2 += tmp;
+      const double p_old = 1.0 / (1.0 + std::pow(factor * da, beta));
+      double tmp_val;
+      if(adjacency_list[v0].find(v1) == adjacency_list[v0].end()) {
+        // not connected
+        tmp_val = std::exp(-da / avg_gap) * (1.0 - link_preservation_probability * p_old);
+      } else {
+        // connected
+        tmp_val = std::exp(-da / avg_gap) * (link_preservation_probability * p_old);
+      }
+      int1 += da * tmp_val;
+      int2 += tmp_val;
     }
+    
     // Uses the value of the expected gap to position the vertices.
     /*TEST*/possible_dtheta1 = int1 / int2;
     /*TEST*/possible_dtheta2 = PI - std::fabs(PI - std::fabs(raw_theta[v1] - raw_theta[v0]));
