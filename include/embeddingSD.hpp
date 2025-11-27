@@ -2036,15 +2036,7 @@ void embeddingSD_t::infer_kappas_given_beta_for_all_vertices(int dim)
   while (keep_going && (cnt < KAPPA_MAX_NB_ITER_CONV))
   {
     // Updates the expected degree of individual vertices.
-
-    // REMOVE THIS
-    if(!QUIET_MODE) { std::clog << "Here1" << std::endl; }
-    if(!QUIET_MODE) { std::clog.flush(); }
-
     compute_inferred_ensemble_expected_degrees(dim, radius);
-
-    if(!QUIET_MODE) { std::clog << "Here2" << std::endl; }
-    if(!QUIET_MODE) { std::clog.flush(); }
 
     // Verifies convergence.
     keep_going = false;
@@ -2237,18 +2229,9 @@ void embeddingSD_t::infer_kappas_given_beta_for_all_vertices()
   bool keep_going = true;
   while( keep_going && (cnt < KAPPA_MAX_NB_ITER_CONV) )
   {
-    // REMOVE THIS 
-    if(!QUIET_MODE) { std::clog << "Before compute inferred" << std::endl; }
-    if(!QUIET_MODE) { std::clog.flush(); }
-
     // Updates the expected degree of individual vertices.
     compute_inferred_ensemble_expected_degrees();
     // Verifies convergence.
-
-    // REMOVE THIS 
-    if(!QUIET_MODE) { std::clog << "After compute inferred" << std::endl; }
-    if(!QUIET_MODE) { std::clog.flush(); }
-
     keep_going = false;
     for(int v(0); v<nb_vertices; ++v)
     {
@@ -2258,9 +2241,6 @@ void embeddingSD_t::infer_kappas_given_beta_for_all_vertices()
         continue;
       }
     }
-    // REMOVE THIS 
-    if(!QUIET_MODE) { std::clog << "After loop" << std::endl; }
-    if(!QUIET_MODE) { std::clog.flush(); }
 
     // Modifies the value of the kappas prior to the next iteration, if required.
     if(keep_going)
