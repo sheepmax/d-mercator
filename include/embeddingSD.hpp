@@ -947,8 +947,6 @@ double embeddingSD_t::draw_random_angular_distance(int d1, int d2, double R, dou
 // =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=
 double embeddingSD_t::compute_random_ensemble_clustering_for_degree_class(int d1, int dim)
 {
-  // Variables.
-  double z12, z13, da;
   // Parameters.
   double p23 = 0;
   const int nb_points = EXP_CLUST_NB_INTEGRATION_MC_STEPS;
@@ -963,8 +961,8 @@ double embeddingSD_t::compute_random_ensemble_clustering_for_degree_class(int d1
     const auto [d3, p13] = degree_of_random_vertex_and_prob_conn(d1, R, dim);
 
     // Random angular distances between vertex (1, 2) and (1, 3) (A.3.2.ii).
-    z12 = draw_random_angular_distance(d1, d2, R, p12, dim);
-    z13 = draw_random_angular_distance(d1, d3, R, p13, dim);
+    auto z12 = draw_random_angular_distance(d1, d2, R, p12, dim);
+    auto z13 = draw_random_angular_distance(d1, d3, R, p13, dim);
 
     // Draw two random D+1 vector with first coordinate constrained by angle and compute distance between them
     const auto v1 = generate_random_d_vector_with_first_coordinate(dim, z12, R);
@@ -975,7 +973,7 @@ double embeddingSD_t::compute_random_ensemble_clustering_for_degree_class(int d1
       p23 += link_preservation_probability;
     } else {
       // Use observed connection probability p_new = r * p_old to be consistent with simulation.
-      p23 += sd::connection_probability(R, da, mu, random_ensemble_kappa_per_degree_class[d2], random_ensemble_kappa_per_degree_class[d3], beta, dim, link_preservation_probability);
+      p23 += sd::connection_probability(R, d_angle, mu, random_ensemble_kappa_per_degree_class[d2], random_ensemble_kappa_per_degree_class[d3], beta, dim, link_preservation_probability);
     }
   }
   // Returns the value of the local clustering coefficient for this degree class (A.3.2.iv).
