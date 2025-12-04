@@ -918,7 +918,7 @@ double embeddingSD_t::draw_random_angular_distance(int d1, int d2, double R, dou
   while((zmax - zmin) > NUMERICAL_CONVERGENCE_THRESHOLD_2)
   {
     z = (zmax + zmin) / 2;
-    pz = compute_integral_expected_degree_dimensions(dim, R, mu, beta, kappa1, kappa2, z, link_preservation_probability) / p12;
+    pz = compute_integral_expected_degree_dimensions(dim, R, mu, beta, kappa1, kappa2, link_preservation_probability, z) / p12;
     if(pz > pc)
       zmax = z;
     else
