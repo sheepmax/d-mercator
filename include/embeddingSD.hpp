@@ -985,8 +985,6 @@ double embeddingSD_t::compute_random_ensemble_clustering_for_degree_class(int d1
 // =~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=~=
 double embeddingSD_t::compute_random_ensemble_clustering_for_degree_class(int d1)
 {
-  // Variables.
-  double z12, z13, da;
   double p23 = 0;
   // Parameters.
   int nb_points = EXP_CLUST_NB_INTEGRATION_MC_STEPS;
@@ -1001,15 +999,11 @@ double embeddingSD_t::compute_random_ensemble_clustering_for_degree_class(int d1
     const auto [d3, p13] = degree_of_random_vertex_and_prob_conn(d1, R);
 
     // Random angular distances between vertex (1, 2) and (1, 3) (A.3.2.ii).
-    z12 = draw_random_angular_distance(d1, d2, R, p12);
-    z13 = draw_random_angular_distance(d1, d3, R, p13);
+    const auto z12 = draw_random_angular_distance(d1, d2, R, p12);
+    const auto z13 = draw_random_angular_distance(d1, d3, R, p13);
 
     // Set the angular distances (A.3.2.iii)
-    if(uniform_01(engine) < 0.5)
-      da = std::fabs(z12 + z13);
-    else
-      da = std::fabs(z12 - z13);
-
+    auto da = (uniform_01(engine) < 0.5) ? std::fabs(z12 + z13) : std::fabs(z12 - z13);
     da = std::min(da, (2.0 * PI) - da);
     if(da < NUMERICAL_ZERO)
     // At zero separation observed probability is r
