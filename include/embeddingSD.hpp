@@ -110,7 +110,7 @@ inline double pairwise_loglikelihood(double radius_R,
   const double x = chi(radius_R, dtheta, mu, k1, k2, dim);
   const double pow_x = std::pow(x, beta);
   if (neighbors) {
-      return std::log(link_preservation_probability) - std::log1p(pow_x);
+      return std::log(link_preservation_probability) - std::log1p(pow_x - link_preservation_probability);
   } else {
       return std::log1p(pow_x - link_preservation_probability) - std::log1p(pow_x);
   }
